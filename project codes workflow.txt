@@ -1,0 +1,126 @@
+
+to download the dataset and pasting it to share folder.
+
+open cloudera vm--
+
+menu => devices => shared folder  => shared folder settings => add new folder to machine folders option by selecting shared folder and keeping mounted and parmanent. 
+
+===================================================================
+cloudera @ quickstart terminal 1
+============================================================================================================================================================================================
+
+su
+
+cloudera
+
+cd /home/cloudera/workspace
+
+mkdir file
+
+mount -t vboxsf shared_folder /home/cloudera/workspace/file/
+
+============================================================================================================================================================================================
+cloudera @ quickstart terminal 2
+============================================================================================================================================================================================
+mysql -u root -p
+
+cloudera 
+
+create database BDHS_PROJECT;
+
+use BDHS_PROJECT;
+
+create table STOCK_PRICES(Trading_date date,Symbol varchar(100) ,Open double(100,2),Close double(100,2),Low double(100,2),High double(100,2),Volume INT(10));
+
+desc STOCK_PRICES;
+
+create table STOCK_COMPANIES(Symbol varchar(100) ,Company_name varchar(100),Sector varchar(100),Sub_industry varchar(100),Headquarter varchar(100));
+
+desc STOCK_COMPANIES;
+
+LOAD DATA INFILE '/home/cloudera/workspace/SHARED/Stockprices.csv' INTO TABLE STOCK_PRICES FIELDS TERMINATED BY ','  ENCLOSED BY '"' LINES TERMINATED BY '\n' IGNORE 1 LINES;
+
+LOAD DATA INFILE '/home/cloudera/workspace/SHARED/Stockcompanies.csv' INTO TABLE STOCK_COMPANIES FIELDS TERMINATED BY ','  ENCLOSED BY '"' LINES TERMINATED BY '\n' IGNORE 1 LINES;
+
+select * from STOCK_PRICES limit 10;
+
+select * from STOCK_COMPANIES limit 10;
+
+============================================================================================================================================================================================
+cloudera @ quickstart terminal 3
+============================================================================================================================================================================================
+hive
+
+show databases;
+
+create database project;
+
+use  project;
+
+create table STOCK_PRICE(Trading_date date,Symbol string ,Open double,Close double,Low double,High double,Volume INT);
+
+
+create table STOCK_COMPANIE(Symbol string ,Company_name string,Sector string,Sub_industry string,Headquarter string);
+
+
+============================================================================================================================================================================================
+cloudera @ quickstart terminal 4
+============================================================================================================================================================================================
+sqoop import --connect jdbc:mysql://localhost/BDHS_PROJECT --username root --P --split-by Symbol  --table STOCK_PRICES --hive-home=/user/hive/warehouse -hive-import --hive-overwrite --hive-table project.STOCK_PRICE
+
+sqoop import --connect jdbc:mysql://localhost/BDHS_PROJECT --username root --P --split-by Symbol  --table STOCK_COMPANIES --hive-home=/user/hive/warehouse -hive-import --hive-overwrite --hive-table project.STOCK_COMPANIE
+
+============================================================================================
+hue hive editor
+============================================================================================================================================================================================
+select * from STOCK_PRICE;
+
+select * from STOCK_COMPANIE;
+
+create table stock_companies as
+SELECT symbol,company_name,split(headquarter,";")[0] as state,sector,sub_industry FROM stock_companie;
+
+select * from stock_companies;
+
+create table stock_prices as
+select date_format(trading_date,"MM") as trading_month,
+date_format(trading_date,"yyyy") as trading_year,
+symbol,open,close,low,high,volume
+from stock_price;
+
+
+select* from stock_prices ;
+
+create table nyse as 
+select a.trading_year,a.trading_month,b.*,a.open,a.close,a.low,a.high,a.volume from stock_prices a join stock_companies b on a.symbol=b.symbol ;
+
+
+select company_name ,avg(volume) as avg_volume from nyse group by company_name order by avg_volume desc limit 5;
+
+
+
+create table  growing_industry as
+select state,sub_industry,(avg(close)-avg(open)) as profit, avg(volume) as transictional_volume 
+from nyse  group by state,sub_industry order by state,transictional_volume desc 
+
+select * from growing_industry where profit>0  order by  state,profit  desc
+
+
+
+create table profit_loss as
+SELECT sector,trading_year as year, avg(volume)as avg_volume, (avg(close)-avg(open)) as yearly_profit_loss FROM nyse GROUP BY sector,
+trading_year order by sector;
+
+create table compare_1 as
+select sector,max(avg_volume) as max_volume,min(avg_volume) as min_volume from profit_loss where yearly_profit_loss > 0  GROUP BY sector
+
+
+create table compare_2 as
+select sector,max(avg_volume) as max_volume,min(avg_volume) as min_volume from profit_loss where yearly_profit_loss < 0  GROUP BY sector
+
+select a.* ,b.max_volume from profit_loss a  join compare_1 b on a.sector=b.sector where  a.avg_volume = b.max_volume
+
+select a.* ,b.min_volume from profit_loss a  join compare_1 b on a.sector=b.sector where  a.avg_volume = b.min_volume
+
+select a.* ,b.max_volume from profit_loss a  join compare_2 b on a.sector=b.sector where  a.avg_volume = b.min_volume
+
